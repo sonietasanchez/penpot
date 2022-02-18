@@ -5,6 +5,7 @@
 ### :boom: Breaking changes
 ### :sparkles: New features
 
+- Persist color palette and color picker across refresh [Taiga #1660](https://tree.taiga.io/project/penpot/issue/1660)
 - Scroll to selected size in font size selector [Taiga #2825](https://tree.taiga.io/project/penpot/us/2825)
 - Duplicate artboards create new flows if needed [Taiga #2221](https://tree.taiga.io/project/penpot/issue/2221)
 - Add new invitations section [Taiga #2797](https://tree.taiga.io/project/penpot/us/2797)
