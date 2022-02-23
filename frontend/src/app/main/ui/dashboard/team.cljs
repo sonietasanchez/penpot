@@ -23,8 +23,10 @@
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
+   [app.util.keyboard :as kbd]
    [beicon.core :as rx]
    [cljs.spec.alpha :as s]
+   [cuerdas.core :as str]
    [rumext.alpha :as mf]))
 
 ;; TEAM SECTION
@@ -78,6 +80,44 @@
 (s/def ::invite-member-form
   (s/keys :req-un [::role ::email]))
 
+
+(mf/defc invite-member-email-row
+  [{:keys [email]}]
+  (let [valid (val email)
+        email (key email)
+        remove-invitation-email! (fn []
+                                   (st/emit! (dd/remove-invitation-email! email)))]
+    [:div
+     [:div.invite-member-email-text {:class (if (not valid) "invalid" "")}
+      [:div.email email]      
+      [:div.icon {:on-click #(remove-invitation-email!)} i/cross]]
+     ]
+    ))
+
+(mf/defc invite-member-email-input
+  [props]
+  (let [on-clean (:on-clean props)
+        update-all-mails (:update-all-mails props)
+        input-key-down (fn [event]
+                         (let [target (dom/event->target event)
+                               value (dom/get-value target)
+                               valid (and (not (= value "")) (dom/valid? target))]
+                           (when (kbd/comma? event)
+                             (dom/prevent-default event)
+                             (st/emit! (dd/add-invitation-email! value valid))
+                             (on-clean))))
+        input-key-up (fn [event]
+                       (when (not (kbd/comma? event))
+                         (update-all-mails)))]
+    
+    [:& fm/input {:class "invite-member-email-input"
+                  :type "email"
+                  :name :last-email
+                  :label (tr "labels.email")
+                  :on-key-down input-key-down
+                  :on-key-up input-key-up}]))
+
+
 (mf/defc invite-member-modal
   {::mf/register modal/components
    ::mf/register-as ::invite-member}
@@ -87,6 +127,10 @@
         initial (mf/use-memo (constantly {:role "editor"}))
         form    (fm/use-form :spec ::invite-member-form
                              :initial initial)
+        invite-members-emails (mf/deref refs/dashboard-invite-members-emails)
+        email-input (dom/get-element "email")
+        last-email-input (dom/get-element "last-email")
+        all-emails (str/join "," (conj (keys invite-members-emails) (dom/get-value last-email-input)))
         on-success
         (st/emitf (dm/success (tr "notifications.invitation-email-sent"))
                   (modal/hide)
@@ -117,20 +161,37 @@
                 mdata  {:on-success (partial on-success form)
                         :on-error   (partial on-error form)}]
             (st/emit! (dd/invite-team-member (with-meta params mdata))
-                      (dd/fetch-team-invitations))))]
-
+                      (dd/fetch-team-invitations))))
+        on-clean-last-email
+        #(swap! form d/dissoc-in [:data :last-email])
+        update-all-mails        
+        #(swap! form assoc-in [:data :email] all-emails)]
+    
     [:div.modal.dashboard-invite-modal.form-container
      [:& fm/form {:on-submit on-submit :form form}
       [:div.title
        [:span.text (tr "modals.invite-member.title")]]
 
+      #_[:div.form-row
+       [:div.invite-member-email-container
+        (for [email invite-members-emails]
+          [:& invite-member-email-row {:email email}])
+        [:& invite-member-email-input {:on-clean on-clean-last-email
+                                       :update-all-mails update-all-mails}]
+        [:& fm/input {:read-only true
+                      :name :email}]]
+
+       [:& fm/select {:name :role
+                      :options roles}]]
+      
       [:div.form-row
-       [:& fm/input {:name :email
-                     :label (tr "labels.email")}]
+       [:div.invite-member-email-container
+        [:& fm/multi-email {:name :email}]        
+       ]
        [:& fm/select {:name :role
                       :options roles}]]
 
-      [:div.action-buttons
+      [:div.action-buttons       
        [:& fm/submit-button {:label (tr "modals.invite-member-confirm.accept")}]]]]))
 
 ;; TEAM MEMBERS SECTION

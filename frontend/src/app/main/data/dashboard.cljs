@@ -771,6 +771,22 @@
              (rx/catch on-error))))))
 
 
+(defn remove-invitation-email!
+  [email]
+  (ptk/reify ::remove-invitation-email!
+    ptk/UpdateEvent
+    (update [_ state]
+      (update state :dashboard-invite-members-emails #(dissoc % email)))))
+
+(defn add-invitation-email!
+  [email valid]
+  (ptk/reify ::add-invitation-email!
+    ptk/UpdateEvent
+    (update [_ state]
+      (update state :dashboard-invite-members-emails #(assoc (or % {}) email valid)))))
+      
+            
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Navigation
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

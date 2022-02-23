@@ -86,6 +86,10 @@
                       (d/index-by :id))))
              st/state =))
 
+
+(def dashboard-invite-members-emails
+  (l/derived :dashboard-invite-members-emails st/state))
+
 ;; ---- Workspace refs
 
 (def workspace-local

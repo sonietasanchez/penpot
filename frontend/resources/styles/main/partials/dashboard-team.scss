@@ -25,6 +25,7 @@
   .custom-select {
     width: 160px;
     overflow: hidden;
+    justify-content: normal;
   }
 
   .action-buttons {
@@ -37,6 +38,50 @@
 
   .title {
     color: $color-black;
+  }
+
+  .invite-member-email-container {
+    border: 1px solid black;
+    width: 304px;
+    margin-right: 10px;
+    max-height: 300px;
+    overflow-y: auto;    
+  }
+
+  .invite-member-email-text {
+    border: 1px solid #b1b2b5;
+    margin: 5px;
+    padding-left: 5px;
+    border-radius: 4px;    
+    max-width: 95%;
+    display: flex;
+    
+    &.invalid {
+      border: 1px solid red;
+    }
+    .email {
+      max-width: 89%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 17px;
+      align-self: center;
+    }
+    .icon {
+      cursor: pointer;
+      margin-left: 10px;  
+      margin-right: 5px;
+      align-self: center;
+    }
+  }
+
+  .invite-member-email-input {
+    width: 95%;
+    border: 0;
+  }
+
+  svg {
+    width: 20px;
+    height: 20px;
   }
 }
 

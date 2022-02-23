@@ -118,7 +118,9 @@
    (on-input-change form field false))
   ([form field trim?]
   (fn [event]
-    (let [target (dom/get-target event)
+    (let [
+          target (dom/get-target event)
+          _ (print "on-input-change" (.-id target))
           value  (if (or (= (.-type target) "checkbox")
                          (= (.-type target) "radio"))
                    (.-checked target)

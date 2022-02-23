@@ -216,3 +216,85 @@
                           (dom/prevent-default event)
                           (on-submit form event))}
       children]]))
+
+
+
+(mf/defc multi-email
+  [{:keys [label help-icon disabled form hint trim children data-test] :as props}]
+  (let [input-name   (get props :name)
+        more-classes (get props :class)
+        auto-focus?  (get props :auto-focus? false)
+
+        form         (or form (mf/use-ctx form-ctx))
+
+        input-ref    (mf/use-ref)
+
+        focus?       (mf/use-state false)
+
+        touched?     (get-in @form [:touched input-name])
+        error        (get-in @form [:errors input-name])
+
+        value        (get-in @form [:data input-name] "")
+
+        klass (str more-classes " "
+                   (dom/classnames
+                    :focus          @focus?
+                    :valid          (and touched? (not error))
+                    :invalid        (and touched? error)
+                    :disabled       disabled
+                    :empty          (str/empty? value)))
+
+        on-focus  #(reset! focus? true)
+        on-change (fm/on-input-change form input-name trim)
+
+        on-blur
+        (fn [_]
+          (reset! focus? false)
+          (when-not (get-in @form [:touched input-name])
+            (swap! form assoc-in [:touched input-name] true)))
+
+        on-click
+        (fn [_]
+          (let [
+                input-node (mf/ref-val input-ref)
+                event (js/Event. "change")
+          ]
+            (dom/set-value! input-node "test@mail.com")
+            ;;(swap! form assoc-in [:data :email] "test@mail.com")
+            (.dispatchEvent input-node event)
+            )
+          )
+
+
+        props (-> props
+                  (assoc :id (name input-name)
+                         :value value
+                         :auto-focus auto-focus?
+                         :on-focus on-focus
+                         :on-blur on-blur
+                         :placeholder label
+                         :on-change on-change
+                         :type "email"
+                         :ref input-ref)
+                  (obj/clj->props))]
+
+    [:div
+     {:class klass}
+[:div 
+ [:input.btn-primary.btn-large {:on-click on-click}]
+ ]     
+     [:*      
+      [:> :input props]
+      (cond
+        (some? label)
+        [:label {:for (name input-name)} label])
+
+      (cond
+        (and touched? (:message error))
+        [:span.error (tr (:message error))]
+
+        (string? hint)
+        [:span.hint hint])      
+      ]
+    
+     ]))
