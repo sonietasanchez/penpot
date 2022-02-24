@@ -74,7 +74,13 @@
                            "password"))))
 
         on-focus  #(reset! focus? true)
-        on-change (fm/on-input-change form input-name trim)
+        on-change (fn [event]
+                    (let [target (dom/get-target event)
+                          value  (if (or (= (.-type target) "checkbox")
+                                         (= (.-type target) "radio"))
+                                   (.-checked target)
+                                   (dom/get-value target))]
+                      (fm/on-input-change form input-name value trim)))
 
         on-blur
         (fn [_]
@@ -141,7 +147,10 @@
                   )
 
         on-focus  #(reset! focus? true)
-        on-change (fm/on-input-change form input-name trim)
+        on-change (fn [event]
+                    (let [target (dom/get-target event)
+                          value  (dom/get-value target)]
+                      (fm/on-input-change form input-name value trim)))
 
         on-blur
         (fn [_]
@@ -178,7 +187,10 @@
         form      (or form (mf/use-ctx form-ctx))
         value     (or (get-in @form [:data input-name]) default)
         cvalue    (d/seek #(= value (:value %)) options)
-        on-change (fm/on-input-change form input-name)]
+        on-change (fn [event]
+                    (let [target (dom/get-target event)
+                          value  (dom/get-value target)]
+                      (fm/on-input-change form input-name value)))]
 
     [:div.custom-select
      [:select {:value value
@@ -245,7 +257,10 @@
                     :empty          (str/empty? value)))
 
         on-focus  #(reset! focus? true)
-        on-change (fm/on-input-change form input-name trim)
+        on-change (fn [event]
+                    (let [target (dom/get-target event)
+                          value  (dom/get-value target)]
+                      (fm/on-input-change form input-name value trim)))
 
         on-blur
         (fn [_]

@@ -114,21 +114,13 @@
         (render inc)))))
 
 (defn on-input-change
-  ([form field]
-   (on-input-change form field false))
-  ([form field trim?]
-  (fn [event]
-    (let [
-          target (dom/get-target event)
-          _ (print "on-input-change" (.-id target))
-          value  (if (or (= (.-type target) "checkbox")
-                         (= (.-type target) "radio"))
-                   (.-checked target)
-                   (dom/get-value target))]
-      (swap! form (fn [state]
-                    (-> state
-                        (assoc-in [:data field] (if trim? (str/trim value) value))
-                        (update :errors dissoc field))))))))
+  ([form field value]
+   (on-input-change form field value false))
+  ([form field value trim?]
+   (swap! form (fn [state]
+                 (-> state
+                     (assoc-in [:data field] (if trim? (str/trim value) value))
+                     (update :errors dissoc field))))))
 
 (defn on-input-blur
   [form field]
