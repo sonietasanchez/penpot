@@ -11,7 +11,8 @@
    [app.util.dom :as dom]
    [app.util.forms :as fm]
    [app.util.i18n :as i18n :refer [tr]]
-   [app.util.object :as obj]
+   [app.util.keyboard :as kbd]
+   [app.util.object :as obj]   
    [clojure.string]
    [cuerdas.core :as str]
    [rumext.alpha :as mf]))
@@ -231,9 +232,20 @@
 
 
 
-(mf/defc multi-email
+(mf/defc multi-input-row         
+  [{:keys [item, remove-item!]}]
+  (let [valid (val item)
+        text (key item)]        
+    [:div
+     [:div.invite-member-email-text {:class (if (not valid) "invalid" "")}
+      [:div.email text]
+      [:div.icon {:on-click #(remove-item! (key item))}i/cross]]]))
+
+(mf/defc multi-input
   [{:keys [label help-icon disabled form hint trim children data-test] :as props}]
-  (let [input-name   (get props :name)
+  (let [input-type   (get props :type "text")
+        multi-input-name   (get props :name)
+        input-name         (keyword (str "single-" (name multi-input-name)))
         more-classes (get props :class)
         auto-focus?  (get props :auto-focus? false)
 
@@ -248,6 +260,12 @@
 
         value        (get-in @form [:data input-name] "")
 
+        items (mf/use-state  {})
+
+        all-items (if (= "" value)
+                    (str/join "," (keys @items))
+                    (str/join "," (conj (keys @items) value)))
+
         klass (str more-classes " "
                    (dom/classnames
                     :focus          @focus?
@@ -260,7 +278,16 @@
         on-change (fn [event]
                     (let [target (dom/get-target event)
                           value  (dom/get-value target)]
-                      (fm/on-input-change form input-name value trim)))
+                      (fm/on-input-change form input-name value trim)
+                      (fm/on-input-change form multi-input-name value trim)
+                      ))
+        remove-item!
+        (fn [item]
+          (swap! items dissoc item))
+
+        add-item!
+        (fn [item valid]
+          (swap! items assoc item valid))
 
         on-blur
         (fn [_]
@@ -268,38 +295,42 @@
           (when-not (get-in @form [:touched input-name])
             (swap! form assoc-in [:touched input-name] true)))
 
-        on-click
-        (fn [_]
-          (let [
-                input-node (mf/ref-val input-ref)
-                event (js/Event. "change")
-          ]
-            (dom/set-value! input-node "test@mail.com")
-            ;;(swap! form assoc-in [:data :email] "test@mail.com")
-            (.dispatchEvent input-node event)
-            )
-          )
+        input-key-down (fn [event]
+                         (let [target (dom/event->target event)
+                               value (dom/get-value target)
+                               valid (and (not (= value "")) (dom/valid? target))]
+                           (when (kbd/comma? event)
+                             (dom/prevent-default event)
+                             (add-item! value valid)
+                             (fm/on-input-change form input-name ""))))
 
 
-        props (-> props
-                  (assoc :id (name input-name)
-                         :value value
-                         :auto-focus auto-focus?
-                         :on-focus on-focus
-                         :on-blur on-blur
-                         :placeholder label
-                         :on-change on-change
-                         :type "email"
-                         :ref input-ref)
-                  (obj/clj->props))]
+        input-props (-> props
+                        (assoc :id (name input-name)
+                               :value value
+                               :auto-focus auto-focus?
+                               :on-focus on-focus
+                               :on-blur on-blur
+                               :placeholder label
+                               :on-change on-change
+                               :type input-type
+                               :ref input-ref
+                               :on-key-down input-key-down)
+                        (obj/clj->props))
+
+        #_multi-input-props #_(-> props
+                              (assoc :id (name multi-input-name)
+                                     :name (name multi-input-name)
+                                     :value all-items
+                                     :on-change on-change)
+                              (obj/clj->props))]
 
     [:div
      {:class klass}
-[:div 
- [:input.btn-primary.btn-large {:on-click on-click}]
- ]     
-     [:*      
-      [:> :input props]
+     [:*
+      (for [item @items]
+        [:& multi-input-row {:item item :remove-item! remove-item!}])      
+      [:> :input input-props]
       (cond
         (some? label)
         [:label {:for (name input-name)} label])
@@ -309,7 +340,8 @@
         [:span.error (tr (:message error))]
 
         (string? hint)
-        [:span.hint hint])      
-      ]
-    
-     ]))
+        [:span.hint hint])
+      
+      
+      [:& :input {:name (name multi-input-name)
+                  :id (name multi-input-name)}]]]))

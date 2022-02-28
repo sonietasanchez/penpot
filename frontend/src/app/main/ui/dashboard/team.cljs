@@ -186,7 +186,8 @@
       
       [:div.form-row
        [:div.invite-member-email-container
-        [:& fm/multi-email {:name :email}]        
+        [:& fm/multi-input {:type "email"
+                            :name :email}]        
        ]
        [:& fm/select {:name :role
                       :options roles}]]
