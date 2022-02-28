@@ -11,6 +11,7 @@
    [app.common.geom.shapes :as geom]
    [app.common.logging :as log]
    [app.common.pages :as cp]
+   [app.common.pages.changes-builder :as pcb]
    [app.common.pages.helpers :as cph]
    [app.common.spec :as us]
    [app.common.text :as txt]
@@ -131,7 +132,7 @@
   "If there is exactly one id, and it's a group, use it as root. Otherwise,
   create a group that contains all ids. Then, make a component with it,
   and link all shapes to their corresponding one in the component."
-  [shapes objects page-id file-id]
+  [it shapes objects page-id file-id]
   (if (and (= (count shapes) 1)
            (:component-id (first shapes)))
     empty-changes
@@ -139,8 +140,9 @@
           [group rchanges uchanges]
           (if (and (= (count shapes) 1)
                    (= (:type (first shapes)) :group))
-            [(first shapes) [] []]
-            (dwg/prepare-create-group objects page-id shapes name true))
+            [(first shapes) (-> (pcb/empty-changes it page-id)
+                                (pcb/with-objects objects))]
+            (dwg/prepare-create-group it objects page-id shapes name true))
 
           ;; Asserts for documentation purposes
           _ (us/assert vector? rchanges)
