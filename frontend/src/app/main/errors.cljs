@@ -17,6 +17,7 @@
    [app.util.router :as rt]
    [app.util.timers :as ts]
    [cljs.pprint :refer [pprint]]
+   [fipp.edn :as fpp]
    [cuerdas.core :as str]
    [expound.alpha :as expound]
    [potok.core :as ptk]))
@@ -81,7 +82,7 @@
   (js/console.group "Validation Error:")
   (ex/ignoring
    (js/console.info
-    (with-out-str (pprint (dissoc error :explain)))))
+    (with-out-str (fpp/pprint (dissoc error :explain)))))
 
   (when-let [explain (:explain error)]
     (js/console.group "Spec explain:")
@@ -138,17 +139,23 @@
 (defmethod ptk/handle-error :server-error
   [{:keys [data hint] :as error}]
   (let [hint (or hint (:hint data) (:message data))
-        info (with-out-str (pprint data))
+        info (with-out-str (fpp/pprint (dissoc data :explain)))
         msg  (str "Internal Server Error: " hint)]
 
     (ts/schedule
-     (st/emitf
-      (dm/show {:content "Something wrong has happened (on backend)."
-                :type :error
-                :timeout 3000})))
+     #(st/emit!
+       (dm/show {:content "Something wrong has happened (on backend)."
+                 :type :error
+                 :timeout 3000})))
 
     (js/console.group msg)
     (js/console.info info)
+
+    (when-let [explain (:explain data)]
+      (js/console.group "Spec explain:")
+      (js/console.log explain)
+      (js/console.groupEnd "Spec explain:"))
+
     (js/console.groupEnd msg)))
 
 (defn on-unhandled-error

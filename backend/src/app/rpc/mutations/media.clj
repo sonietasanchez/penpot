@@ -6,6 +6,7 @@
 
 (ns app.rpc.mutations.media
   (:require
+   [app.common.data :as d]
    [app.common.exceptions :as ex]
    [app.common.media :as cm]
    [app.common.spec :as us]
@@ -16,12 +17,12 @@
    [app.rpc.queries.teams :as teams]
    [app.rpc.rlimit :as rlimit]
    [app.storage :as sto]
-   [app.util.async :as async]
-   [app.util.http :as http]
    [app.util.services :as sv]
    [app.util.time :as dt]
    [clojure.spec.alpha :as s]
-   [datoteka.core :as fs]))
+   [datoteka.core :as fs]
+   [promesa.core :as p]
+   [promesa.exec :as px]))
 
 (def thumbnail-options
   {:width 100
@@ -50,10 +51,10 @@
           :opt-un [::id]))
 
 (sv/defmethod ::upload-file-media-object
-  {::rlimit/permits (cf/get :rlimit-image)
-   ::async/dispatch :default}
+  {::rlimit/permits (cf/get :rlimit-image)}
   [{:keys [pool] :as cfg} {:keys [profile-id file-id] :as params}]
-  (let [file (select-file pool file-id)]
+  (let [file (select-file pool file-id)
+        cfg  (update cfg :storage media/configure-assets-storage)]
     (teams/check-edition-permissions! pool profile-id (:team-id file))
     (create-file-media-object cfg params)))
 
@@ -67,34 +68,6 @@
 (defn- svg-image?
   [info]
   (= (:mtype info) "image/svg+xml"))
-
-(defn- fetch-url
-  [url]
-  (try
-    (http/get! url {:as :byte-array})
-    (catch Exception e
-      (ex/raise :type :validation
-                :code :unable-to-access-to-url
-                :cause e))))
-
-;; TODO: we need to check the size before fetch resource, if not we
-;; can start downloading very big object and cause OOM errors.
-
-(defn- download-media
-  [{:keys [storage] :as cfg} url]
-  (let [result (fetch-url url)
-        data   (:body result)
-        mtype  (get (:headers result) "content-type")
-        format (cm/mtype->format mtype)]
-    (when (nil? format)
-      (ex/raise :type :validation
-                :code :media-type-not-allowed
-                :hint "Seems like the url points to an invalid media object."))
-    (-> (assoc storage :backend :tmp)
-        (sto/put-object {:content (sto/content data)
-                         :content-type mtype
-                         :reference :file-media-object
-                         :expired-at (dt/in-future {:minutes 30})}))))
 
 ;; NOTE: we use the `on conflict do update` instead of `do nothing`
 ;; because postgresql does not returns anything if no update is
@@ -121,67 +94,112 @@
 ;; inverse, soft referential integrity).
 
 (defn create-file-media-object
-  [{:keys [storage pool] :as cfg} {:keys [id file-id is-local name content] :as params}]
+  [{:keys [storage pool executors] :as cfg} {:keys [id file-id is-local name content] :as params}]
   (media/validate-media-type (:content-type content))
-  (let [source-path  (fs/path (:tempfile content))
-        source-mtype (:content-type content)
-        source-info  (media/run {:cmd :info :input {:path source-path :mtype source-mtype}})
-        storage      (media/configure-assets-storage storage)
 
-        thumb        (when (and (not (svg-image? source-info))
-                                (big-enough-for-thumbnail? source-info))
-                       (media/run (assoc thumbnail-options
-                                         :cmd :generic-thumbnail
-                                         :input {:mtype (:mtype source-info)
-                                                 :path source-path})))
+  (letfn [;; Function responsible to retrieve the file information, as
+          ;; it is synchronous operation it should be wrapped into
+          ;; with-dispatch macro.
+          (get-info [path mtype]
+            (px/with-dispatch (:blocking executors)
+              (media/run {:cmd :info :input {:path path :mtype mtype}})))
 
-        image        (if (= (:mtype source-info) "image/svg+xml")
-                       (let [data (slurp source-path)]
-                         (sto/put-object storage
-                                         {:content (sto/content data)
-                                          :content-type (:mtype source-info)
-                                          :reference :file-media-object
-                                          :touched-at (dt/now)}))
-                       (sto/put-object storage
-                                       {:content (sto/content source-path)
-                                        :content-type (:mtype source-info)
-                                        :reference :file-media-object
-                                        :touched-at (dt/now)}))
+          ;; Function responsible of generating thumnail. As it is synchronous
+          ;; opetation, it should be wrapped into with-dispatch macro
+          (generate-thumbnail [info path]
+            (px/with-dispatch (:blocking executors)
+              (media/run (assoc thumbnail-options
+                                :cmd :generic-thumbnail
+                                :input {:mtype (:mtype info) :path path}))))
 
-        thumb        (when thumb
-                       (sto/put-object storage
-                                       {:content (sto/content (:data thumb) (:size thumb))
-                                        :content-type (:mtype thumb)
-                                        :reference :file-media-object
-                                        :touched-at (dt/now)}))]
+          (create-thumbnail [info path]
+            (when (and (not (svg-image? info))
+                       (big-enough-for-thumbnail? info))
+              (p/let [thumb (generate-thumbnail info path)]
+                (sto/put-object storage
+                                {:content (sto/content (:data thumb) (:size thumb))
+                                 :content-type (:mtype thumb)
+                                 :reference :file-media-object
+                                 :touched-at (dt/now)}))))
 
-    (db/exec-one! pool [sql:create-file-media-object
-                        (or id (uuid/next))
-                        file-id is-local name
-                        (:id image)
-                        (:id thumb)
-                        (:width source-info)
-                        (:height source-info)
-                        source-mtype])))
+          (create-image [info path]
+            (let [content (if (= (:mtype info) "image/svg+xml")
+                            (sto/content (slurp path))
+                            (sto/content path))]
+              (sto/put-object storage
+                              {:content content
+                               :content-type (:mtype info)
+                               :reference :file-media-object
+                               :touched-at (dt/now)})))
+
+          (insert-into-database [info image thumb]
+            (px/with-dispatch (:default executors)
+              (db/exec-one! pool [sql:create-file-media-object
+                                  (or id (uuid/next))
+                                  file-id is-local name
+                                  (:id image)
+                                  (:id thumb)
+                                  (:width info)
+                                  (:height info)
+                                  (:mtype info)])))]
+
+    (p/let [path  (fs/path (:tempfile content))
+            info  (get-info path (:content-type content))
+            thumb (create-thumbnail info path)
+            image (create-image info path)]
+
+      (insert-into-database info image thumb))))
 
 ;; --- Create File Media Object (from URL)
+
+(declare ^:private create-file-media-object-from-url)
 
 (s/def ::create-file-media-object-from-url
   (s/keys :req-un [::profile-id ::file-id ::is-local ::url]
           :opt-un [::id ::name]))
 
 (sv/defmethod ::create-file-media-object-from-url
-  {::rlimit/permits (cf/get :rlimit-image)
-   ::async/dispatch :default}
-  [{:keys [pool storage] :as cfg} {:keys [profile-id file-id url name] :as params}]
-  (let [file (select-file pool file-id)]
+  {::rlimit/permits (cf/get :rlimit-image)}
+  [{:keys [pool] :as cfg} {:keys [profile-id file-id] :as params}]
+  (let [file (select-file pool file-id)
+        cfg  (update cfg :storage media/configure-assets-storage)]
     (teams/check-edition-permissions! pool profile-id (:team-id file))
-    (let [mobj    (download-media cfg url)
-          content {:filename "tempfile"
-                   :size (:size mobj)
-                   :tempfile (sto/get-object-path storage mobj)
-                   :content-type (:content-type (meta mobj))}]
+    (create-file-media-object-from-url cfg params)))
 
+(defn- create-file-media-object-from-url
+  [{:keys [storage http-client] :as cfg} {:keys [url name] :as params}]
+  (letfn [(download-media [uri]
+            (p/let [{:keys [body headers]} (http-client {:method :get :uri uri}
+                                                        {:response-type :input-stream})]
+              (let [mtype  (get headers "content-type")
+                    size   (some-> (get headers "content-length") d/parse-integer)
+                    format (cm/mtype->format mtype)]
+
+                ;; TODO: handle maximum size
+
+                (when-not size
+                  (ex/raise :type :validation
+                            :code :unknown-size
+                            :hint "Seems like the url points to resource with unknown size"))
+
+                (when (nil? format)
+                  (ex/raise :type :validation
+                            :code :media-type-not-allowed
+                            :hint "Seems like the url points to an invalid media object"))
+
+                (-> (assoc storage :backend :tmp)
+                    (sto/put-object {:content (sto/content body size)
+                                     :content-type mtype
+                                     :reference :file-media-object
+                                     :expired-at (dt/in-future {:minutes 30})})
+                    (p/then (fn [sobj]
+                              (p/let [path (sto/get-object-path storage sobj)]
+                                {:filename "tempfile"
+                                 :size (:size sobj)
+                                 :tempfile path
+                                 :content-type (:content-type (meta sobj))})))))))]
+
+    (p/let [content (download-media url)]
       (->> (merge params {:content content :name (or name (:filename content))})
            (create-file-media-object cfg)))))
 

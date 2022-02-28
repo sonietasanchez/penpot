@@ -23,9 +23,9 @@
   (let [storage (-> (:app.storage/storage th/*system*)
                     (configure-storage-backend))
 
-        sobject (sto/put-object storage {:content (sto/content "content")
-                                         :content-type "text/plain"
-                                         :other "data"})
+        sobject @(sto/put-object storage {:content (sto/content "content")
+                                          :content-type "text/plain"
+                                          :other "data"})
         profile (th/create-profile* 1 {:is-active true})
         project (th/create-project* 1 {:team-id (:default-team-id profile)
                                        :profile-id (:id profile)})
@@ -95,9 +95,9 @@
 (t/deftest duplicate-file-with-deleted-rels
   (let [storage (-> (:app.storage/storage th/*system*)
                     (configure-storage-backend))
-        sobject (sto/put-object storage {:content (sto/content "content")
-                                         :content-type "text/plain"
-                                         :other "data"})
+        sobject @(sto/put-object storage {:content (sto/content "content")
+                                          :content-type "text/plain"
+                                          :other "data"})
         profile (th/create-profile* 1 {:is-active true})
         project (th/create-project* 1 {:team-id (:default-team-id profile)
                                        :profile-id (:id profile)})
@@ -115,7 +115,7 @@
                                                :media-id (:id sobject)})
 
         _       (th/mark-file-deleted* {:id (:id file2)})
-        _       (sto/del-object storage (:id sobject))]
+        _       @(sto/del-object storage (:id sobject))]
 
     (th/update-file*
      {:file-id (:id file1)
@@ -158,9 +158,9 @@
   (let [storage (-> (:app.storage/storage th/*system*)
                     (configure-storage-backend))
 
-        sobject (sto/put-object storage {:content (sto/content "content")
-                                         :content-type "text/plain"
-                                         :other "data"})
+        sobject @(sto/put-object storage {:content (sto/content "content")
+                                          :content-type "text/plain"
+                                          :other "data"})
         profile (th/create-profile* 1 {:is-active true})
         project (th/create-project* 1 {:team-id (:default-team-id profile)
                                        :profile-id (:id profile)})
@@ -229,9 +229,9 @@
 (t/deftest duplicate-project-with-deleted-files
   (let [storage (-> (:app.storage/storage th/*system*)
                     (configure-storage-backend))
-        sobject (sto/put-object storage {:content (sto/content "content")
-                                         :content-type "text/plain"
-                                         :other "data"})
+        sobject @(sto/put-object storage {:content (sto/content "content")
+                                          :content-type "text/plain"
+                                          :other "data"})
         profile (th/create-profile* 1 {:is-active true})
         project (th/create-project* 1 {:team-id (:default-team-id profile)
                                        :profile-id (:id profile)})

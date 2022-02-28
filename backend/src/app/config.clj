@@ -47,7 +47,7 @@
    :database-username "penpot"
    :database-password "penpot"
 
-   :default-blob-version 3
+   :default-blob-version 4
    :loggers-zmq-uri "tcp://localhost:45556"
 
    :file-change-snapshot-every 5

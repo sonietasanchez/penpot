@@ -7,17 +7,19 @@
 (ns app.storage.impl
   "Storage backends abstraction layer."
   (:require
+   [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
    [app.common.uuid :as uuid]
    [buddy.core.codecs :as bc]
-   [clojure.java.io :as io]
-   [cuerdas.core :as str])
+   [buddy.core.hash :as bh]
+   [clojure.java.io :as io])
   (:import
    java.nio.ByteBuffer
    java.util.UUID
    java.io.ByteArrayInputStream
    java.io.InputStream
-   java.nio.file.Files))
+   java.nio.file.Files
+   ))
 
 ;; --- API Definition
 
@@ -210,14 +212,20 @@
     (.toByteArray output)))
 
 (defn resolve-backend
-  [{:keys [conn pool] :as storage} backend-id]
-  (when backend-id
-    (let [backend (get-in storage [:backends backend-id])]
-      (when-not backend
-        (ex/raise :type :internal
-                  :code :backend-not-configured
-                  :hint (str/fmt "backend '%s' not configured" backend-id)))
-      (assoc backend
-             :conn (or conn pool)
-             :id backend-id))))
+  [{:keys [conn pool executor] :as storage} backend-id]
+  (let [backend (get-in storage [:backends backend-id])]
+    (when-not backend
+      (ex/raise :type :internal
+                :code :backend-not-configured
+                :hint (dm/fmt "backend '%' not configured" backend-id)))
+    (assoc backend
+           :executor executor
+           :conn (or conn pool)
+           :id backend-id)))
 
+(defn get-hash
+  [content]
+  (assert (content? content) "should be instance of IContentObject")
+  (with-open [is (io/input-stream content)]
+    (-> (bh/blake2b-256 is)
+        (bc/bytes->hex))))
