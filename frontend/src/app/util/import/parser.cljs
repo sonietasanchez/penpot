@@ -51,7 +51,12 @@
 (defn find-all-nodes
   [node tag]
   (when (some? node)
-    (->> node :content (filterv #(= (:tag %) tag)))))
+    (let [predicate?
+          (if (set? tag)
+            ;; We can pass a tag set or a single tag
+            #(contains? tag (:tag %))
+            #(= (:tag %) tag))]
+      (->> node :content (filterv predicate?)))))
 
 (defn get-data
   ([node]
@@ -211,7 +216,8 @@
       (let [;; The nodes with the "frame-background" class can have some anidation depending on the strokes they have
             g-nodes (find-all-nodes node :g)
             defs-nodes (flatten (map #(find-all-nodes % :defs) g-nodes))
-            rect-nodes (flatten [(map #(find-all-nodes % :rect) defs-nodes) (map #(find-all-nodes % :rect) g-nodes)])
+            rect-nodes (flatten [(map #(find-all-nodes % #{:rect :path}) defs-nodes)
+                                 (map #(find-all-nodes % #{:rect :path}) g-nodes)])
             svg-node (d/seek #(= "frame-background" (get-in % [:attrs :class])) rect-nodes)]
         (merge (add-attrs {} (:attrs svg-node)) node-attrs))
 
@@ -458,7 +464,7 @@
       (some? stroke-cap-end)
       (assoc :stroke-cap-end stroke-cap-end))))
 
-(defn add-rect-data
+(defn add-radius-data
   [props node svg-data]
   (let [r1 (get-meta node :r1 d/parse-double)
         r2 (get-meta node :r2 d/parse-double)
@@ -817,12 +823,12 @@
           (cond-> (= :group type)
             (add-group-data node))
 
-          (cond-> (= :rect type)
-            (add-rect-data node svg-data))
+          (cond-> (or (= :frame type) (= :rect type))
+            (add-radius-data node svg-data))
 
           (cond-> (some? (get-in node [:attrs :penpot:media-id]))
             (->
-             (add-rect-data node svg-data)
+             (add-radius-data node svg-data)
              (add-image-data type node)))
 
           (cond-> (= :text type)
