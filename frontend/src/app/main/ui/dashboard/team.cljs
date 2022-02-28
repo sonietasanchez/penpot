@@ -75,7 +75,7 @@
         ]
        (filterv identity)))
 
-(s/def ::email ::us/email)
+(s/def ::email ::us/set-of-emails)
 (s/def ::role  ::us/keyword)
 (s/def ::invite-member-form
   (s/keys :req-un [::role ::email]))
@@ -186,7 +186,7 @@
       
       [:div.form-row
        [:div.invite-member-email-container
-        [:& fm/multi-input {:type "email"
+        [:& fm/multi-email {:type "email"
                             :name :email}]        
        ]
        [:& fm/select {:name :role

@@ -345,3 +345,52 @@
       
       [:& :input {:name (name multi-input-name)
                   :id (name multi-input-name)}]]]))
+
+
+
+(mf/defc multi-email
+  [{:keys [label help-icon disabled form hint trim children data-test] :as props}]
+  (let [multi-input-name   (get props :name)
+        single-input-name         (keyword (str "single-" (name multi-input-name)))
+        form         (or form (mf/use-ctx form-ctx))
+        value        (get-in @form [:data multi-input-name] "")
+        items (mf/use-state  {})
+        remove-item!
+        (fn [item]
+          (swap! items dissoc item))
+
+        add-item!
+        (fn [item valid]
+          (swap! items assoc item valid))
+
+        single-mail-value        (get-in @form [:data single-input-name] "")
+
+        all-items (if (= "" single-mail-value)
+                    (str/join "," (keys @items))
+                    (str/join "," (conj (keys @items) single-mail-value)))
+
+        input-key-down (fn [event]
+                         (let [target (dom/event->target event)
+                               value (dom/get-value target)
+                               valid (and (not (= value "")) (dom/valid? target))]
+                           (print props)
+                           (when (kbd/comma? event)
+                             (dom/prevent-default event)
+                             (add-item! value valid)
+                             (fm/on-input-change form single-input-name ""))))
+
+        input-key-up #(fm/on-input-change form multi-input-name all-items trim)
+
+        single-props (-> props
+                         (assoc :name single-input-name)
+                         (assoc :on-key-down input-key-down)
+                         (assoc :on-key-up input-key-up))]
+
+    [:div
+     (for [item @items]
+       [:& multi-input-row {:item item :remove-item! remove-item!}])
+     [:& input single-props]
+     [:input {:id (name multi-input-name)
+              :read-only true
+              :type "hidden"
+              :value value}]]))
