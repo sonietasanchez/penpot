@@ -91,19 +91,39 @@
              :created-at (:created-at result)
              :touched-at (:touched-at result)))))
 
+(defn get-metadata
+  [params]
+  (into {}
+        (remove (fn [[k v]] (qualified-keyword? k)))
+        params))
+
+(defn- get-database-object-by-hash
+  [conn backend hash]
+  (let [sql "select * from storage_object where (metadata->>'~:hash') = ? and backend = ?"]
+    (db/exec-one! conn [sql hash (name backend)])))
+
 (defn- create-database-object
-  [{:keys [conn backend executor]} {:keys [content] :as object}]
+  [{:keys [conn backend executor]} {:keys [::content ::expired-at ::touched-at] :as params}]
   (us/assert ::storage-content content)
   (px/with-dispatch executor
     (let [id     (uuid/random)
-          mdata  (dissoc object :content :expired-at :touched-at)
-          result (db/insert! conn :storage-object
-                             {:id id
-                              :size (count content)
-                              :backend (name backend)
-                              :metadata (db/tjson mdata)
-                              :deleted-at (:expired-at object)
-                              :touched-at (:touched-at object)})]
+
+          mdata  (cond-> (get-metadata params)
+                   (satisfies? impl/IContentHash content)
+                   (assoc :hash (impl/get-hash content)))
+
+          result (when (and (::deduplicate? params)
+                            (:hash mdata))
+                   (get-database-object-by-hash conn backend (:hash mdata)))
+
+          result (or result
+                     (db/insert! conn :storage-object
+                                 {:id id
+                                  :size (count content)
+                                  :backend (name backend)
+                                  :metadata (db/tjson mdata)
+                                  :deleted-at expired-at
+                                  :touched-at touched-at}))]
 
       (StorageObject. (:id result)
                       (:size result)
@@ -154,9 +174,8 @@
   [url]
   (fs/path (java.net.URI. (str url))))
 
-(defn content
-  ([data] (impl/content data nil))
-  ([data size] (impl/content data size)))
+(dm/export impl/content)
+(dm/export impl/wrap-with-hash)
 
 (defn get-object
   [{:keys [conn pool] :as storage} id]
@@ -167,7 +186,7 @@
 
 (defn put-object
   "Creates a new object with the provided content."
-  [{:keys [pool conn backend] :as storage} {:keys [content] :as params}]
+  [{:keys [pool conn backend] :as storage} {:keys [::content] :as params}]
   (us/assert ::storage storage)
   (us/assert ::storage-content content)
   (us/assert ::us/keyword backend)
@@ -262,6 +281,7 @@
       (delete-database-object (if (uuid? id-or-obj) id-or-obj (:id id-or-obj)))))
 
 (dm/export impl/resolve-backend)
+(dm/export impl/calculate-hash)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Garbage Collection: Permanently delete objects

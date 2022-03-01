@@ -104,6 +104,14 @@
             (px/with-dispatch (:blocking executors)
               (media/run {:cmd :info :input {:path path :mtype mtype}})))
 
+          ;; Function responsible of calculating cryptographyc hash of
+          ;; the provided data. Even though it uses the hight
+          ;; performance BLAKE2b algorithm, we prefer to schedule it
+          ;; to be executed on the blocking executor.
+          (calculate-hash [data]
+            (px/with-dispatch (:blocking executors)
+              (sto/calculate-hash data)))
+
           ;; Function responsible of generating thumnail. As it is synchronous
           ;; opetation, it should be wrapped into with-dispatch macro
           (generate-thumbnail [info path]
@@ -115,22 +123,29 @@
           (create-thumbnail [info path]
             (when (and (not (svg-image? info))
                        (big-enough-for-thumbnail? info))
-              (p/let [thumb (generate-thumbnail info path)]
+              (p/let [thumb   (generate-thumbnail info path)
+                      hash    (calculate-hash (:data thumb))
+                      content (-> (sto/content (:data thumb) (:size thumb))
+                                  (sto/wrap-with-hash hash))]
                 (sto/put-object storage
-                                {:content (sto/content (:data thumb) (:size thumb))
+                                {::sto/content content
+                                 ::sto/deduplicate? true
+                                 ::sto/touched-at (dt/now)
                                  :content-type (:mtype thumb)
                                  :reference :file-media-object
-                                 :touched-at (dt/now)}))))
+                                 }))))
 
           (create-image [info path]
-            (let [content (if (= (:mtype info) "image/svg+xml")
-                            (sto/content (slurp path))
-                            (sto/content path))]
+            (p/let [data    (cond-> path (= (:mtype info) "image/svg+xml") slurp)
+                    hash    (calculate-hash data)
+                    content (-> (sto/content data)
+                                (sto/wrap-with-hash hash))]
               (sto/put-object storage
-                              {:content content
+                              {::sto/content content
+                               ::sto/deduplicate? true
+                               ::sto/touched-at (dt/now)
                                :content-type (:mtype info)
-                               :reference :file-media-object
-                               :touched-at (dt/now)})))
+                               :reference :file-media-object})))
 
           (insert-into-database [info image thumb]
             (px/with-dispatch (:default executors)
@@ -166,38 +181,49 @@
     (teams/check-edition-permissions! pool profile-id (:team-id file))
     (create-file-media-object-from-url cfg params)))
 
+(def max-download-file-size
+  (* 1024 1024 100)) ; 100MiB
+
 (defn- create-file-media-object-from-url
-  [{:keys [storage http-client] :as cfg} {:keys [url name] :as params}]
-  (letfn [(download-media [uri]
-            (p/let [{:keys [body headers]} (http-client {:method :get :uri uri}
-                                                        {:response-type :input-stream})]
-              (let [mtype  (get headers "content-type")
-                    size   (some-> (get headers "content-length") d/parse-integer)
-                    format (cm/mtype->format mtype)]
+  [{:keys [storage http-client executors] :as cfg} {:keys [url name] :as params}]
+  (letfn [(parse-and-validate-size [headers]
+            (let [size   (some-> (get headers "content-length") d/parse-integer)
+                  mtype  (get headers "content-type")
+                  format (cm/mtype->format mtype)]
+              (when-not size
+                (ex/raise :type :validation
+                          :code :unknown-size
+                          :hint "Seems like the url points to resource with unknown size"))
 
-                ;; TODO: handle maximum size
+              (when (> size max-download-file-size)
+                (ex/raise :type :validation
+                          :code :file-too-large
+                          :hint "Seems like the url points to resource with size greater than 100MiB"))
 
-                (when-not size
-                  (ex/raise :type :validation
-                            :code :unknown-size
-                            :hint "Seems like the url points to resource with unknown size"))
+              (when (nil? format)
+                (ex/raise :type :validation
+                          :code :media-type-not-allowed
+                          :hint "Seems like the url points to an invalid media object"))
 
-                (when (nil? format)
-                  (ex/raise :type :validation
-                            :code :media-type-not-allowed
-                            :hint "Seems like the url points to an invalid media object"))
+              {:size size
+               :mtype mtype
+               :format format}))
 
-                (-> (assoc storage :backend :tmp)
-                    (sto/put-object {:content (sto/content body size)
-                                     :content-type mtype
-                                     :reference :file-media-object
-                                     :expired-at (dt/in-future {:minutes 30})})
-                    (p/then (fn [sobj]
-                              (p/let [path (sto/get-object-path storage sobj)]
-                                {:filename "tempfile"
-                                 :size (:size sobj)
-                                 :tempfile path
-                                 :content-type (:content-type (meta sobj))})))))))]
+          (download-media [uri]
+            (p/let [{:keys [body headers]} (http-client {:method :get :uri uri} {:response-type :input-stream})
+                    {:keys [size mtype format]} (parse-and-validate-size headers)]
+
+              (-> (assoc storage :backend :tmp)
+                  (sto/put-object {::sto/content (sto/content body size)
+                                   ::sto/expired-at (dt/in-future {:minutes 30})
+                                   :content-type mtype
+                                   :reference :file-media-object})
+                  (p/then (fn [sobj]
+                            (p/let [path (sto/get-object-path storage sobj)]
+                              {:filename "tempfile"
+                               :size (:size sobj)
+                               :tempfile path
+                               :content-type (:content-type (meta sobj))}))))))]
 
     (p/let [content (download-media url)]
       (->> (merge params {:content content :name (or name (:filename content))})

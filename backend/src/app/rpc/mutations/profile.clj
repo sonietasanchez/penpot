@@ -345,6 +345,7 @@
         (profile/decode-profile-row)
         (profile/strip-private-attrs))))
 
+
 (s/def ::update-profile
   (s/keys :req-un [::id ::fullname]
           :opt-un [::lang ::theme]))

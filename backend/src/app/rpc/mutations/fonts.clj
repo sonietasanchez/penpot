@@ -51,6 +51,14 @@
             (px/with-dispatch (:blocking executors)
               (media/run {:cmd :generate-fonts :input data})))
 
+          ;; Function responsible of calculating cryptographyc hash of
+          ;; the provided data. Even though it uses the hight
+          ;; performance BLAKE2b algorithm, we prefer to schedule it
+          ;; to be executed on the blocking executor.
+          (calculate-hash [data]
+            (px/with-dispatch (:blocking executors)
+              (sto/calculate-hash data)))
+
           (validate-data [data]
             (when (and (not (contains? data "font/otf"))
                        (not (contains? data "font/ttf"))
@@ -60,30 +68,23 @@
                         :code :invalid-font-upload))
             data)
 
+          (persist-font-object [data mtype]
+            (when-let [fdata (get data mtype)]
+              (p/let [hash    (calculate-hash fdata)
+                      content (-> (sto/content fdata)
+                                  (sto/wrap-with-hash hash))]
+                (sto/put-object storage {::sto/content content
+                                         ::sto/touched-at (dt/now)
+                                         ::sto/deduplicate? true
+                                         :content-type mtype
+                                         :reference :team-font-variant}))))
+
           (persist-fonts [data]
-            (p/let [otf   (when-let [fdata (get data "font/otf")]
-                            (sto/put-object storage {:content (sto/content fdata)
-                                                     :content-type "font/otf"
-                                                     :reference :team-font-variant
-                                                     :touched-at (dt/now)}))
+            (p/let [otf   (persist-font-object data "font/otf")
+                    ttf   (persist-font-object data "font/ttf")
+                    woff1 (persist-font-object data "font/woff")
+                    woff2 (persist-font-object data "font/woff2")]
 
-                    ttf   (when-let [fdata (get data "font/ttf")]
-                            (sto/put-object storage {:content (sto/content fdata)
-                                                     :content-type "font/ttf"
-                                                     :touched-at (dt/now)
-                                                     :reference :team-font-variant}))
-
-                    woff1 (when-let [fdata (get data "font/woff")]
-                            (sto/put-object storage {:content (sto/content fdata)
-                                                     :content-type "font/woff"
-                                                     :touched-at (dt/now)
-                                                     :reference :team-font-variant}))
-
-                    woff2 (when-let [fdata (get data "font/woff2")]
-                            (sto/put-object storage {:content (sto/content fdata)
-                                                     :content-type "font/woff2"
-                                                     :touched-at (dt/now)
-                                                     :reference :team-font-variant}))]
               (d/without-nils
                {:otf otf
                 :ttf ttf
