@@ -412,6 +412,8 @@
 (s/def ::update-profile-photo
   (s/keys :req-un [::profile-id ::file]))
 
+;; TODO: properly handle resource usage, transactions and storage
+
 (sv/defmethod ::update-profile-photo
   {::rlimit/permits (cf/get :rlimit-image)}
   [{:keys [pool storage] :as cfg} {:keys [profile-id file] :as params}]
