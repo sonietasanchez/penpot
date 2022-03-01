@@ -266,10 +266,10 @@
             (d/preconj
              change-set
              {:type :add-obj
+              :id id
               :page-id page-id
               :parent-id (:frame-id shape)
               :frame-id (:frame-id shape)
-              :id id
               :index (cph/get-position-on-parent objects id)
               :obj (cond-> shape
                      (contains? shape :shapes)
